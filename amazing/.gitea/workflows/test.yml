@@ -1,0 +1,151 @@
+name: Gitea Actions Demo
+run-name: ${{ gitea.actor }} is testing out Gitea Actions 🚀
+on: [push]
+
+jobs:
+  # Explore-Gitea-Actions:
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - run: echo "🎉 The job was automatically triggered by a ${{ gitea.event_name }} event."
+  #     - run: echo "🐧 This job is now running on a ${{ runner.os }} server hosted by Gitea!"
+  #     - run: echo "🔎 The name of your branch is ${{ gitea.ref }} and your repository is ${{ gitea.repository }}."
+  #     - name: Check out repository code
+  #       uses: actions/checkout@v4
+  #     - run: echo "💡 The ${{ gitea.repository }} repository has been cloned to the runner."
+  #     - run: echo "🖥️ The workflow is now ready to test your code on the runner."
+  #     - name: List files in the repository
+  #       run: |
+  #         ls ${{ gitea.workspace }}
+  #     - run: echo "🍏 This job's status is ${{ job.status }}."
+  Build-and-Push:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Calculate Build Start Time
+        id: build_start_time
+        run: echo "BUILD_START_TIME=$(date +%s)" >> $GITHUB_ENV
+      - name: Login to DockerHub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_PASSWORD }}
+      
+      - name: Check out repository code
+        uses: actions/checkout@v4
+      
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          # target: basic
+          platforms: |
+            linux/amd64
+            linux/arm64
+          push: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/${{ github.event.repository.name }}:${{ github.run_number }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/${{ github.event.repository.name }}:latest 
+      - name: Calculate build duration
+        id: calculate_duration
+        run: |
+          end_time=$(date +%s)
+          duration=$((end_time - $BUILD_START_TIME))
+          echo "duration=$duration" >> $GITHUB_ENV
+          echo "::set-output name=duration::$duration"  
+      - name: Get short commit hash
+        id: short_commit
+        run: echo "SHORT_SHA=${GITHUB_SHA:0:7}" >> $GITHUB_ENV
+      # - uses: dchourasia/ms-teams-notification@1.0
+      - name: Failure Notification
+        uses: slackapi/slack-github-action@v1.26.0
+        if: failure()
+        with:
+          payload: |
+            {
+              "blocks": [
+                {
+                  "type": "section",
+                  "text": {
+                  "type": "mrkdwn",
+                  "text": "*:x: Failed GitHub Actions*"
+                  }
+                }
+              ]
+            }
+          # webhook-uri: ${{ secrets.WEBHOOK_URL }}
+          # github-token: ${{ github.token }}
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.WEBHOOK_URL }}
+          SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
+      - name: Success Notification
+        uses: slackapi/slack-github-action@v1.26.0
+        if: success()
+        with:
+          payload: |
+            {
+              "blocks": [
+                {
+                  "type": "section",
+                  "text": {
+                  "type": "mrkdwn",
+                  "text": "*:white_check_mark: Success GitHub Actions*"
+                  }
+                },
+                {
+                 "type":"section",
+                 "fields":[ 
+                      {   
+                      "type":"mrkdwn",
+                      "text": "Build time Taken is: ${{env.duration}}"
+                      },
+                      {
+                      "type":"mrkdwn",
+                      "text": "This is a test message"
+                      }                 
+                  ]
+                }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.WEBHOOK_URL }}
+          SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
+      # - name: Cache Build  
+      #   uses: actions/cache@v3
+      #   with: # Specify with your cache path
+      #     path: |
+      #         /root/.cache
+      #     key: ${{ runner.os }}-buildx-${{ gitea.sha }}
+      #     restore-keys: |
+      #       ${{ runner.os }}-buildx-${{ gitea.sha }}  
+      
+      # - run: echo "this is the pusher email ${{gitea.event.pusher.email}}"
+      # - run: echo "${{gitea@hostname}}"
+  # Cache-Go:
+  #   name: Cache Go
+  #   runs-on: node
+  #   steps:
+  #     - uses: actions/checkout@v3
+  #     - uses: actions/setup-go@v3
+  #       with:
+  #         go-version: '>=1.20.1'
+  #     # - run: |
+  #     #     apt update && apt install nodejs npm -y
+  #     - uses: https://gitea.com/actions/go-hashfiles@v0.0.1
+  #       id: hash-go
+  #       with:
+  #         patterns: |
+  #           go.mod
+  #           go.sum 
+  #           **/package.*json                                   
+  #     - name: cache go
+  #       id: cache-go
+  #       uses: actions/cache@v3
+  #       with: # Specify with your cache path
+  #         path: |
+  #           /root/go/pkg/mod
+  #           /root/.cache/go-build
+  #         key: go_path-${{ steps.hash-go.outputs.hash }}
+  #         restore-keys: |-
+  #           go_cache-${{ steps.hash-go.outputs.hash }}
